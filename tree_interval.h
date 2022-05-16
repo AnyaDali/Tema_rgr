@@ -25,8 +25,8 @@ protected:
         __node *right;
         __node *prev;
 
-        inline const size_t &get_left_border() const noexcept { return interval.l; }
-        inline const size_t &get_right_border() const noexcept { return interval.r; }
+        constexpr inline const size_t &get_left_border() const noexcept { return interval.l; }
+        constexpr inline const size_t &get_right_border() const noexcept { return interval.r; }
     };
 
     using reb_alloc = typename std::allocator_traits<_Alloc>::template rebind_alloc<__node>;
@@ -35,6 +35,7 @@ protected:
     reb_alloc alloc;
     __node *root;
     size_t sz;
+    std::stack<std::tuple<__interval, __node *>> st;
 
     template <typename _Iter>
     _Ty __sum_init(size_t l, size_t r, _Iter __ptr)
@@ -48,14 +49,39 @@ protected:
         return s;
     }
 
-    bool __check_border_eq(const __node *__ptr, const __interval &__intrvl) noexcept
+    inline bool __check_border_eq(const __node *__ptr, const __interval &__intrvl) noexcept
     {
         return (__ptr->get_left_border() == __intrvl.l) && (__ptr->get_right_border() == __intrvl.r);
     }
 
+    constexpr inline const _Ty &__get_val(const __node *&__ptr) const noexcept { return __ptr->val; }
+
+    constexpr inline __node *__left(const __node *__ptr) { return __ptr->left; }
+
+    constexpr inline __node *__right(const __node *__ptr) { return __ptr->right; }
+
+    inline _Ty __procedure_get_sum(size_t l, size_t r, const __node *tail, size_t tl, size_t tr)
+    {
+        if (!tail)
+            return 0;
+
+        if (l <= tl && tr <= r)
+        {
+            return __get_val(tail);
+        }
+
+        if (tr < l || r < tl)
+        {
+            return 0;
+        }
+
+        size_t tm = (tl + tr) >> 1;
+        return __procedure_get_sum(l, r, tail->left, tl, tm) + __procedure_get_sum(l, r, tail->right, tm, tr);
+    }
+
 public:
     template <typename _Iter>
-    tree_interval(_Iter __first, _Iter __last) : sz(static_cast<size_t>(std::distance(__first, __last)))
+    tree_interval(_Iter __first, _Iter __last) : alloc(), sz(static_cast<size_t>(std::distance(__first, __last))), st()
     {
         size_t l = 0;
         size_t r = sz;
@@ -104,23 +130,50 @@ public:
             }
         }
     }
+    /*
+    Запрос суммы
+l, r - границы запроса;
+v - номер текущей вершины; tl, tr - границы соответствующего отрезка
+int get_sum(int l, int r, int v, int tl, int tr) {
+    вариант 1
+    if (l <= tl && tr <= r) {
+        return tree[v];
+    }
+
+    вариант 2
+    if (tr < l || r < tl) {
+        return 0;
+    }
+
+    вариант 3
+    int tm = (tl + tr) / 2;
+    return get_sum(l, r, v * 2,     tl,     tm)
+         + get_sum(l, r, v * 2 + 1, tm + 1, tr);
+}
+    */
+
+    _Ty get_sum(const size_t &left_border, const size_t &right_border)
+    {
+        return __procedure_get_sum(left_border, right_border, root, root->get_left_border(), root->get_right_border());
+    }
 
     _Ty get_sum_interval(size_t left_border, size_t right_border)
     {
-        std::stack<std::tuple<__interval, __node *> /*std::list<std::tuple<__interval, __node *>, pool_allocator<std::tuple<__interval, __node *>>> */> st;
         _Ty sum = _Ty(); // результат
         __node *tail = root;
         st.emplace(__interval{left_border, right_border}, tail);
+        __interval tmp_interval;
         while (!st.empty())
         {
-            __interval tmp_interval = std::get<0>(st.top());
+            tmp_interval = std::get<0>(st.top());
             tail = std::get<1>(st.top());
             st.pop();
             tail = tail->right;
-            if (tail != nullptr && tmp_interval.r > tail->get_left_border())
+            if (tmp_interval.r > tail->get_left_border())
             {
+                // std::cout << "right: " << std::max(tail->get_left_border(), tmp_interval.l) << "  " << tmp_interval.r << "  sum = " << sum << std::endl;
+
                 std::tuple p = std::make_tuple(__interval{std::max(tail->get_left_border(), tmp_interval.l), tmp_interval.r}, tail);
-                // st.emplace(std::move(__interval{std::max(tail->right->get_left_border(), tmp_interval.l), tmp_interval.r}), tail->right);
                 if (__check_border_eq(tail, std::get<0>(p)))
                 {
                     sum += tail->val;
@@ -132,8 +185,10 @@ public:
             }
             tail = tail->prev;
             tail = tail->left;
-            if (tail != nullptr && tmp_interval.l < tail->get_right_border())
+            if (tmp_interval.l < tail->get_right_border())
             {
+                // std::cout << "left: " << tmp_interval.l << "  " << std::min(tmp_interval.r, tail->get_right_border()) << "  sum = " << sum << std::endl;
+
                 std::tuple p = std::make_tuple(__interval{tmp_interval.l, std::min(tmp_interval.r, tail->get_right_border())}, tail);
                 // st.emplace(std::move(__interval{tmp_interval.l, std::min(tmp_interval.r, tail->left->get_right_border())}), tail->left);
                 if (__check_border_eq(tail, std::get<0>(p)))
